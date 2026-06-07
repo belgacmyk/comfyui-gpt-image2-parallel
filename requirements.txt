@@ -1,0 +1,1 @@
+# Sem dependências extras: Pillow, numpy, torch e requests já vêm com o ComfyUI.

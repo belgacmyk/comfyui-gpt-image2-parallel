@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-gpt-image2-parallel"
+description = "Async/parallel fork of comfyui-gpt-image: OpenAI gpt-image-2 with your own key. Includes an x2 node (prompt_a/image_a + prompt_b/image_b -> image_a + image_b) that runs both calls concurrently via asyncio.gather."
+version = "2.0.0"
+license = {file = "LICENSE"}
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/YOUR_GITHUB_USERNAME/comfyui-gpt-image2-parallel"
+
+[tool.comfy]
+PublisherId = "YOUR_PUBLISHER_ID"
+DisplayName = "comfyui-gpt-image2-parallel"
+Icon = ""
