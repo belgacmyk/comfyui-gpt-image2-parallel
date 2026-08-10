@@ -332,14 +332,27 @@ class SynchronousOperation(Generic[T, R]):
             logging.debug(f"[DEBUG] Request Data: {json.dumps(request_dict, indent=2)}")
             logging.debug(f"[DEBUG] Query Params: {self.endpoint.query_params}")
 
-            # Make the request
-            resp = client.request(
-                method=self.endpoint.method.value,
-                path=self.endpoint.path,
-                json=request_dict,
-                params=self.endpoint.query_params,
-                files=self.files,
-            )
+        # Make the request (retry p/ erros transitorios da OpenAI: 520/429/5xx)
+        import time
+        _RETRYABLE = ("'status': 429", "'status': 500", "'status': 502",
+                      "'status': 503", "'status': 520", "'status': 522",
+                      "'status': 524", "TooManyRequests")
+        resp = None
+        for _try in range(2):
+            try:
+                resp = client.request(
+                    method=self.endpoint.method.value,
+                    path=self.endpoint.path,
+                    json=request_dict,
+                    params=self.endpoint.query_params,
+                    files=self.files,
+                )
+                break
+            except Exception as _e:
+                if _try == 0 and any(c in str(_e) for c in _RETRYABLE):
+                    time.sleep(65)
+                    continue
+                raise
 
             # Debug log for response
             logging.debug("=" * 50)
