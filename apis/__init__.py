@@ -299,6 +299,8 @@ class Quality(str, Enum):
     low = 'low'
     medium = 'medium'
     high = 'high'
+    xhigh = 'xhigh'
+    max = 'max'
 
 
 class OpenAIImageEditRequest(BaseModel):
@@ -342,6 +344,8 @@ class Quality1(str, Enum):
     low = 'low'
     medium = 'medium'
     high = 'high'
+    xhigh = 'xhigh'
+    max = 'max'
     standard = 'standard'
     hd = 'hd'
     auto = 'auto'
