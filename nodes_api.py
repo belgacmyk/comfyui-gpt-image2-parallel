@@ -9,7 +9,6 @@ import numpy as np
 import requests
 import torch
 from PIL import Image
-import os
 try:
     from comfy.comfy_types.node_typing import IO, ComfyNodeABC, InputTypeDict
 except Exception:
@@ -25,6 +24,61 @@ from .apis.client import ApiEndpoint, HttpMethod, SynchronousOperation
 import json
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+
+
+# Preserve node IDs and input order for existing workflows.
+# Model IDs and capabilities checked against OpenAI docs on 2026-09-08.
+DEFAULT_MODEL = "gpt-image-2.5-flare"
+GPT_IMAGE_MODELS = [
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare-2026-09-08",
+    "gpt-image-2.5-sunburst-2026-09-08",
+    "gpt-image-2",
+    "gpt-image-1.5",
+    "gpt-image-1",
+    "gpt-image-1-mini",
+]
+GPT_IMAGE_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"]
+BACKGROUND_TOOLTIP = (
+    "GPT Image 2.5 supports transparent backgrounds (PNG output). "
+    "GPT Image 2 does not support transparent backgrounds."
+)
+QUALITY_TOOLTIP = (
+    "Image quality affects cost and generation time. "
+    "xhigh and max require GPT Image 2.5 Flare or Sunburst."
+)
+
+
+def _resolve_model(model, quality, background):
+    """Validate capabilities without silently substituting another model."""
+    model = (model or "").strip() or DEFAULT_MODEL
+    is_image25 = any(
+        model == family or model.startswith(family + "-")
+        for family in ("gpt-image-2.5-flare", "gpt-image-2.5-sunburst")
+    )
+    if quality in ("xhigh", "max") and not is_image25:
+        raise ValueError(
+            f"quality={quality!r} requires GPT Image 2.5 Flare or Sunburst; "
+            f"selected model is {model!r}. Use auto, low, medium or high."
+        )
+    if background == "transparent" and (
+        model == "gpt-image-2" or model.startswith("gpt-image-2-")
+    ):
+        raise ValueError(
+            "GPT Image 2 does not support transparent backgrounds. "
+            "Select GPT Image 2.5, or use opaque/auto."
+        )
+    return model
+
+
+def _normalize_api_base(api_base):
+    """Preserve /v1 when the existing client joins relative endpoint paths."""
+    value = (api_base or "").strip()
+    if not value:
+        raise ValueError("Set api_base, for example https://api.openai.com/v1")
+    return value.rstrip("/") + "/"
+
 
 def read_user_config():
     if os.path.exists(CONFIG_PATH):
@@ -106,7 +160,7 @@ class GPTImage1Generate(ComfyNodeABC):
                     {
                         "multiline": True,
                         "default": "",
-                        "tooltip": "Text prompt for GPT Image 1",
+                        "tooltip": "Text prompt for GPT Image",
                     },
                 ),
             },
@@ -130,13 +184,8 @@ class GPTImage1Generate(ComfyNodeABC):
                 "model": (
                     IO.COMBO,
                     {
-                        "options": [
-                            "gpt-image-2",
-                            "gpt-image-1.5",
-                            "gpt-image-1",
-                            "gpt-image-1-mini",
-                        ],
-                        "default": "gpt-image-2",
+                        "options": GPT_IMAGE_MODELS,
+                        "default": DEFAULT_MODEL,
                         "tooltip": "GPT Image model",
                     },
                 ),
@@ -148,15 +197,15 @@ class GPTImage1Generate(ComfyNodeABC):
                         "max": 2**31 - 1,
                         "step": 1,
                         "display": "number",
-                        "tooltip": "not implemented yet in backend",
+                        "tooltip": "Workflow compatibility only; the image API does not accept a seed.",
                     },
                 ),
                 "quality": (
                     IO.COMBO,
                     {
-                        "options": ["auto", "low", "medium", "high"],
-                        "default": "low",
-                        "tooltip": "Image quality, affects cost and generation time.",
+                        "options": GPT_IMAGE_QUALITIES,
+                        "default": "auto",
+                        "tooltip": QUALITY_TOOLTIP,
                     },
                 ),
                 "background": (
@@ -164,7 +213,7 @@ class GPTImage1Generate(ComfyNodeABC):
                     {
                         "options": ["auto", "opaque", "transparent"],
                         "default": "opaque",
-                        "tooltip": "Background. Note: gpt-image-2 does not support 'transparent'.",
+                        "tooltip": BACKGROUND_TOOLTIP,
                     },
                 ),
                 "size": (
@@ -181,7 +230,7 @@ class GPTImage1Generate(ComfyNodeABC):
                             "2160x3840",
                         ],
                         "default": "auto",
-                        "tooltip": "Image size. gpt-image-2: edges multiple of 16, <=3840px, ratio <=3:1; >2560x1440 is experimental.",
+                        "tooltip": "Image size. GPT Image 2 / 2.5: edges multiple of 16, <=3840px, ratio <=3:1; >2560x1440 is experimental.",
                     },
                 ),
                 "n": (
@@ -233,7 +282,7 @@ class GPTImage1Generate(ComfyNodeABC):
         self,
         prompt,
         seed=0,
-        quality="low",
+        quality="auto",
         background="opaque",
         image=None,
         mask=None,
@@ -250,9 +299,7 @@ class GPTImage1Generate(ComfyNodeABC):
         AUTH_TOKEN = config.get("auth_token", "")
 
 
-        # 如果model为空，则使用默认的模型
-        if model is None:
-            model = "gpt-image-2"
+        model = _resolve_model(model, quality, background)
         path = "images/generations"
         request_class = OpenAIImageGenerationRequest
         img_binaries = []
@@ -293,10 +340,10 @@ class GPTImage1Generate(ComfyNodeABC):
                     files.append(("image[]", img_binary))
 
         if mask is not None:
-            if image.shape[0] != 1:
-                raise Exception("Cannot use a mask with multiple image")
             if image is None:
                 raise Exception("Cannot use a mask without an input image")
+            if image.shape[0] != 1:
+                raise Exception("Cannot use a mask with multiple image")
             if mask.shape[1:] != image.shape[1:-1]:
                 raise Exception("Mask and Image must be the same size")
             batch, height, width = mask.shape
@@ -327,13 +374,13 @@ class GPTImage1Generate(ComfyNodeABC):
                 prompt=prompt,
                 quality=quality,
                 background=background,
+                output_format="png",
                 n=n,
-                seed=seed,
                 size=size,
                 moderation=moderation,
             ),
             files=files if files else None,
-            api_base=api_base,
+            api_base=_normalize_api_base(api_base),
             auth_token=auth_token,
         )
 
@@ -398,8 +445,7 @@ def _prepare_image_files(images, mask):
 
 
 def _build_operation(prompt, images, mask, quality, background, n, size, moderation, api_base, auth_token, model):
-    if model is None or model == "":
-        model = "gpt-image-2"
+    model = _resolve_model(model, quality, background)
     path, request_class, files = _prepare_image_files(images, mask)
     return SynchronousOperation(
         endpoint=ApiEndpoint(
@@ -413,12 +459,13 @@ def _build_operation(prompt, images, mask, quality, background, n, size, moderat
             prompt=prompt,
             quality=quality,
             background=background,
+            output_format="png",
             n=n,
             size=size,
             moderation=moderation,
         ),
         files=files if files else None,
-        api_base=api_base,
+        api_base=_normalize_api_base(api_base),
         auth_token=auth_token,
     )
 
@@ -427,7 +474,7 @@ def _img_input(letter, idx):
     return (IO.IMAGE, {"tooltip": f"Optional reference image #{idx} for branch {letter} (enables editing)."})
 
 
-# Official gpt-image-2 popular sizes (OpenAI docs). "custom" lets you type any
+# Official GPT Image 2 / 2.5 popular sizes (OpenAI docs). "custom" lets you type any
 # resolution that meets the constraints (edges multiple of 16, <=3840px,
 # ratio <=3:1, total pixels 655360-8294400; >2560x1440 is experimental).
 _GPT_IMAGE2_SIZES = [
@@ -453,7 +500,7 @@ def _resolve_size(size, size_custom):
 
 class GPTImage2GenerateParallelX2(ComfyNodeABC):
     """
-    Two fully independent gpt-image-2 generations at once. Each branch has its
+    Two fully independent GPT Image generations at once. Each branch has its
     own prompt, up to 5 reference images, mask, size (preset OR custom
     resolution), quality, background, image count (n), model and moderation.
     Only the API connection (api_base + auth_token) is shared. Both calls fire
@@ -467,12 +514,12 @@ class GPTImage2GenerateParallelX2(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(cls) -> InputTypeDict:
         sizes = _GPT_IMAGE2_SIZES
-        qualities = ["auto", "low", "medium", "high"]
+        qualities = GPT_IMAGE_QUALITIES
         backgrounds = ["auto", "opaque", "transparent"]
         moderations = ["low", "auto"]
-        models = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]
+        models = GPT_IMAGE_MODELS
         custom_size_tip = "Used only when size = custom. Format WIDTHxHEIGHT, e.g. 1792x1024. Edges multiple of 16, <=3840px, ratio <=3:1; >2560x1440 experimental."
-        bg_tip = "Background. Note: gpt-image-2 does NOT support 'transparent'."
+        bg_tip = BACKGROUND_TOOLTIP
         size_tip = "Preset size/proportion, or 'custom' to type your own below."
         return {
             "required": {
@@ -490,10 +537,10 @@ class GPTImage2GenerateParallelX2(ComfyNodeABC):
                 "image_a4": _img_input("A", 4),
                 "image_a5": _img_input("A", 5),
                 "mask_a": (IO.MASK, {"tooltip": "Optional mask for branch A (inpainting; white = replace)."}),
-                "model_a": (IO.COMBO, {"options": models, "default": "gpt-image-2", "tooltip": "Branch A model"}),
+                "model_a": (IO.COMBO, {"options": models, "default": DEFAULT_MODEL, "tooltip": "Branch A model"}),
                 "size_a": (IO.COMBO, {"options": sizes, "default": "auto", "tooltip": size_tip}),
                 "size_custom_a": (IO.STRING, {"default": "", "tooltip": custom_size_tip}),
-                "quality_a": (IO.COMBO, {"options": qualities, "default": "auto", "tooltip": "Branch A quality"}),
+                "quality_a": (IO.COMBO, {"options": qualities, "default": "auto", "tooltip": QUALITY_TOOLTIP}),
                 "background_a": (IO.COMBO, {"options": backgrounds, "default": "opaque", "tooltip": bg_tip}),
                 "n_a": (IO.INT, {"default": 1, "min": 1, "max": 8, "step": 1, "tooltip": "Branch A: number of images"}),
                 "moderation_a": (IO.COMBO, {"options": moderations, "default": "low", "tooltip": "Branch A moderation"}),
@@ -504,10 +551,10 @@ class GPTImage2GenerateParallelX2(ComfyNodeABC):
                 "image_b4": _img_input("B", 4),
                 "image_b5": _img_input("B", 5),
                 "mask_b": (IO.MASK, {"tooltip": "Optional mask for branch B (inpainting; white = replace)."}),
-                "model_b": (IO.COMBO, {"options": models, "default": "gpt-image-2", "tooltip": "Branch B model"}),
+                "model_b": (IO.COMBO, {"options": models, "default": DEFAULT_MODEL, "tooltip": "Branch B model"}),
                 "size_b": (IO.COMBO, {"options": sizes, "default": "auto", "tooltip": size_tip}),
                 "size_custom_b": (IO.STRING, {"default": "", "tooltip": custom_size_tip}),
-                "quality_b": (IO.COMBO, {"options": qualities, "default": "auto", "tooltip": "Branch B quality"}),
+                "quality_b": (IO.COMBO, {"options": qualities, "default": "auto", "tooltip": QUALITY_TOOLTIP}),
                 "background_b": (IO.COMBO, {"options": backgrounds, "default": "opaque", "tooltip": bg_tip}),
                 "n_b": (IO.INT, {"default": 1, "min": 1, "max": 8, "step": 1, "tooltip": "Branch B: number of images"}),
                 "moderation_b": (IO.COMBO, {"options": moderations, "default": "low", "tooltip": "Branch B moderation"}),
@@ -532,7 +579,7 @@ class GPTImage2GenerateParallelX2(ComfyNodeABC):
         image_a4=None,
         image_a5=None,
         mask_a=None,
-        model_a="gpt-image-2",
+        model_a=DEFAULT_MODEL,
         size_a="auto",
         size_custom_a="",
         quality_a="auto",
@@ -545,7 +592,7 @@ class GPTImage2GenerateParallelX2(ComfyNodeABC):
         image_b4=None,
         image_b5=None,
         mask_b=None,
-        model_b="gpt-image-2",
+        model_b=DEFAULT_MODEL,
         size_b="auto",
         size_custom_b="",
         quality_b="auto",
