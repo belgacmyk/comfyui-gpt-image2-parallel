@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import AnyUrl, BaseModel, Field, confloat, conint
 
@@ -290,6 +290,8 @@ class Moderation(str, Enum):
 
 
 class OutputFormat(str, Enum):
+    svg = "svg"
+    gif = "gif"
     png = 'png'
     webp = 'webp'
     jpeg = 'jpeg'
@@ -304,6 +306,9 @@ class Quality(str, Enum):
 
 
 class OpenAIImageEditRequest(BaseModel):
+    complexity: Optional[Literal["low", "medium", "high"]] = None
+    frame_count: Optional[conint(ge=2, le=16)] = None
+    frame_duration_ms: Optional[conint(ge=20, le=2000)] = None
     background: Optional[str] = Field(
         None, description='Background transparency', examples=['opaque']
     )
@@ -362,6 +367,9 @@ class Style(str, Enum):
 
 
 class OpenAIImageGenerationRequest(BaseModel):
+    complexity: Optional[Literal["low", "medium", "high"]] = None
+    frame_count: Optional[conint(ge=2, le=16)] = None
+    frame_duration_ms: Optional[conint(ge=20, le=2000)] = None
     background: Optional[Background] = Field(
         None, description='Background transparency', examples=['opaque']
     )

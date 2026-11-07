@@ -146,7 +146,10 @@ class ApiClient:
         if files:
             del request_headers["Content-Type"]
 
-        logging.debug(f"[DEBUG] Request Headers: {request_headers}")
+        logging.debug("[DEBUG] Request Headers: %s", {
+            key: "[REDACTED]" if key.lower() == "authorization" else value
+            for key, value in request_headers.items()
+        })
         logging.debug(f"[DEBUG] Files: {files}")
         logging.debug(f"[DEBUG] Params: {params}")
         logging.debug(f"[DEBUG] Json: {json}")

@@ -1,79 +1,68 @@
 # comfyui-gpt-image2-parallel
 
-Async/parallel fork of [`lceric/comfyui-gpt-image`](https://github.com/lceric/comfyui-gpt-image).
-Calls the **OpenAI Images API (GPT Image 2.5 and earlier) with your own key** (no Comfy Org login). Runs **two fully independent generations in parallel**.
+Parallel OpenAI Images API nodes for ComfyUI and ComfyDeploy, using your own key. Fork of [lceric/comfyui-gpt-image](https://github.com/lceric/comfyui-gpt-image).
 
-## Version 2.1.0: GPT Image 2.5
+## Version 2.2.0 — GPT Image 2.6
 
-Both nodes support the exact API IDs `gpt-image-2.5-flare` and `gpt-image-2.5-sunburst`, plus their pinned snapshots `gpt-image-2.5-flare-2026-09-08` and `gpt-image-2.5-sunburst-2026-09-08`. New nodes default to Flare with quality `auto`.
+Adds `gpt-image-2.6-flare` and `gpt-image-2.6-sunburst`. New nodes default to 2.6 Flare; **saved explicit model selections remain unchanged**. Previous 2.5 aliases/snapshots and older entries remain for workflow compatibility. OpenAI retired `gpt-image-1` on October 23, 2026; retaining that entry does not restore access. No automatic model fallback occurs.
 
-The new quality levels `xhigh` and `max` are available only for GPT Image 2.5. Incompatible older-model selections raise a local error before execution. Both request schemas accept the new quality values. GPT Image 2.5 supports transparent output; the nodes explicitly request PNG and preserve alpha. GPT Image 2 still rejects `transparent`.
+Existing node IDs, output types, connections and previous widget positions are preserved. New optional controls are appended. API-format workflows can omit them. Open and save frontend workflows again after updating to serialize the appended widgets.
 
-Existing node IDs, input order, connections and saved model selections are preserved. **Existing workflows keep their old model until you change `model`, `model_a` or `model_b`.** Model access failures do not silently switch to an older model. The legacy `seed` widget remains for compatibility but is not sent to the image API.
+### Existing image nodes
 
-This update also normalizes the API base URL so that `/v1` is retained with or without a trailing slash, and fixes the single node's error when a mask is supplied without an image. It does not change credentials, configuration files, image input resizing or the parallel execution architecture.
+- `GPTImage2GenerateParallel`: **OpenAI GPT Image (Async / Parallel)**, one `IMAGE` output.
+- `GPTImage2GenerateParallelX2`: **OpenAI GPT Image x2 (Parallel a+b)**, independent `image_a` and `image_b` outputs. Calls overlap through `asyncio.gather` and worker threads.
 
-For an existing installation, back up local changes, apply the update files and restart ComfyUI. Refresh the browser and select the new model in your saved workflow. A ComfyDeploy installation needs a rebuild after the updated code has actually been published to its repository.
+Each x2 branch retains its prompt, five image sockets (batches flatten to at most 16 references), mask, model, size/custom size, quality, background, image count and moderation. The single node accepts an image batch, but a mask requires exactly one image.
 
-The API project and configured provider must have access to the selected model. A dropdown entry does not grant access. A third-party API base must independently support the model IDs and parameters. Workflow metadata records the requested model; it is not independent proof of the provider's backend model.
+New controls, per branch (`_a` / `_b`) or unsuffixed in the single node:
 
-Official references checked on September 8, 2026:
-[Flare](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare),
-[Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst),
-[Image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+| Input | Behavior |
+| --- | --- |
+| `complexity` | `auto`, `low`, `medium`, `high`. Explicit control requires 2.6. `auto` omits the field (current API default: high). Planning effort is separate from quality. |
+| `markup` | One transparent RGBA annotation overlay matching the first reference dimensions. Supported on 2.5/2.6 edits; cannot combine with mask. |
+| `output_format` | `png` (default), `webp`, `jpeg`. Tensors preserve alpha when present. Use Files x2 for SVG/GIF. |
+| `output_compression` | 0–100, sent only for JPEG/WebP. |
 
-## Main node — OpenAI GPT Image x2 (Parallel a+b)
+Quality remains `auto`, `low`, `medium`, `high`, `xhigh`, `max`; the last two require 2.5/2.6. Transparent output supports PNG/WebP. GPT Image 2 transparency is now available in preview. Availability depends on project/provider access.
 
-Two independent generations at once. **Each branch (A and B) has its own settings**; only the API connection is shared.
+**Markup:** standard Load Image returns RGB and a separate inverted mask. Use Join Image with Alpha or an RGBA loader before connecting `markup`. Flattened overlays are rejected. Reference and overlay use the same existing input-downscaling policy. Reference socket/batch order is retained.
 
-Per branch (A and B):
-- `prompt_a` / `prompt_b`
-- `image_a1`..`image_a5` / `image_b1`..`image_b5` — up to 5 reference images each (sent to images/edits)
-- `mask_a` / `mask_b` — optional inpainting mask (white = replace; applied to the first image)
-- `size_a` / `size_b` — preset **or** `custom`. Presets (GPT Image 2 / 2.5 sizes): `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048` (2K), `2048x1152` (2K), `3840x2160` (4K), `2160x3840` (4K)
-- `size_custom_a` / `size_custom_b` — used only when size = `custom`. Type any `WIDTHxHEIGHT` (e.g. `1792x1024`)
-- `quality_a` / `quality_b` — `auto` / `low` / `medium` / `high` / `xhigh` / `max` (last two require 2.5)
-- `background_a` / `background_b` — `auto` / `opaque` / `transparent`
-- `n_a` / `n_b` — number of images
-- `model_a` / `model_b` — dropdown: `gpt-image-2.5-flare` (default), `gpt-image-2.5-sunburst`, dated 2.5 snapshots, `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`
-- `moderation_a` / `moderation_b` — `low` / `auto`
+The x2 node retains `size=custom` and `size_custom`. Existing presets through 3840×2160 / 2160×3840 remain; verify current model size limits. GIF has a separate total pixel budget. The legacy single-node `seed` is retained but never sent to the API.
 
-Shared: `api_base` (e.g. `https://api.openai.com/v1`) and `auth_token` (your OpenAI key `sk-...`).
+### New file node — SVG and animated GIF
 
-Outputs: `image_a`, `image_b`.
+`GPTImage26FilesParallelX2`: **OpenAI GPT Image 2.6 Files x2 (SVG / GIF / Raster)**.
 
-A branch with any image connected uses **images/edits**; with no image it uses **images/generations**. Both calls run concurrently via `asyncio.gather`.
+Same two independent branches, with SVG/GIF added to `output_format_a/b`. Saves original bytes in the ComfyUI output folder under `filename_prefix` (default `GPTImage26`) plus a branch suffix. `files_a_json` and `files_b_json` contain JSON arrays of `filename`, `subfolder`, `type`, `format`. These are local file descriptors, **not public URLs**. SVG is not executed or rasterized; GIF preserves all animation frames. Raster/GIF artifacts appear in UI image outputs; SVG is available in the output folder and file descriptors.
 
-### GPT Image 2 / 2.5 size rules (from OpenAI docs)
-`size` accepts any resolution that satisfies: max edge ≤ `3840px`; both edges multiples of `16px`; long:short edge ratio ≤ `3:1`; total pixels between `655,360` and `8,294,400`. Outputs above `2560x1440` (2K) are considered experimental. `gpt-image-2` does **not** support `transparent` backgrounds.
+| Format | Rules |
+| --- | --- |
+| SVG | 2.6, text-to-image only, n=1; no reference images, masks, markup or compression. Saves original XML bytes. |
+| GIF | 2.6, generation or still-reference editing. `frame_count_a/b`: 2–16, default 9. `frame_duration_ms_a/b`: 20–2000, default 200, rounded by the API to 10 ms. No mask, custom compression or transparent-background setting. Start with size=auto; size/frame count/n must fit provider limits. |
 
-## Second node — OpenAI GPT Image (Async / Parallel)
-One request per node, optional `image` (which can be a batch) and `mask`. A mask requires exactly one image. Same model/quality/background options and preset sizes; the custom-size field belongs to the x2 node only.
+SVG/GIF can require project preview access. Both branches are validated before either paid request starts. Raster nodes reject SVG/GIF to avoid losing vector content or animation frames. Format-specific fields are omitted for other formats.
 
-## Install — local
-1. Unzip.
-2. Move the folder `comfyui-gpt-image2-parallel` into `ComfyUI/custom_nodes/` (must be `custom_nodes/comfyui-gpt-image2-parallel/nodes_api.py`, no nested folder).
-3. Use the Python environment and dependencies belonging to ComfyUI.
-4. Restart ComfyUI.
+## Install and configure
 
-## Install — ComfyDeploy
-Add the repo Git URL as a custom node, then rebuild.
+1. Update the repository under `ComfyUI/custom_nodes/comfyui-gpt-image2-parallel`, preserving local edits and private config.
+2. Use the ComfyUI Python environment: Pydantic 2, Torch, NumPy, Pillow, requests.
+3. Restart ComfyUI and refresh the browser. Select 2.6 explicitly in existing workflows.
+4. Set `api_base=https://api.openai.com/v1` and your key. Existing `auth_token`/private `config.json` behavior is retained; `OPENAI_API_KEY` is also a fallback. Prefer server secrets to credentials embedded in workflows/PNG metadata. Authorization headers are redacted in debug logs.
 
-## Configure
-- `api_base` = `https://api.openai.com/v1`
-- `auth_token` = your OpenAI key (`sk-...`)
-- `model_a` / `model_b` = pick from the dropdown (default `gpt-image-2.5-flare`)
+**ComfyDeploy:** publish/merge the new repository revision, rebuild the machine/deployment that installs it, refresh the schema and save the selected model in a new workflow/deployment version. GitHub changes alone do not update running workers. For SVG/GIF, configure the deployment's file-output/upload contract: local file descriptors cannot connect to `IMAGE`-only outputs. Existing PNG workflows retain their old x2 output contract. No production deployment was rebuilt for this update.
 
-API organization verification may be required for your project.
+Third-party API bases must independently support these exact model IDs, parameters and formats. Dropdowns do not grant model access or prove a provider's upstream model. No paid generation or live frontend rendering was performed in this update.
 
-## Notes
-- If the node does not appear, the console log shows a line starting with `[comfyui-gpt-image2-parallel]`.
-- If a parameter errors (e.g. `moderation`), the API returns a clear 400; remove that option.
-- Mask works most predictably with a single reference image.
+## Validation
 
-## Offline tests
+Run `python -B -m unittest discover -s tests -v`. Tests cover prior input order/output contracts, model/quality/complexity selection, RGBA markup, JSON/multipart serialization through the real HTTP adapter with mocked transport, preflight of both branches, concurrent settings, PNG alpha, and byte-exact SVG/GIF saving with multiple frames. Tests use ComfyUI type shims and make no paid calls. Live frontend behavior and account-specific model/preview access still require verification.
 
-Run `python -m unittest discover -s tests -v` in the node folder using its Python environment. The tests use real request schemas, Pydantic, Torch, NumPy and Pillow. ComfyUI types and the operation transport are stubbed. They test model/quality selection, serialization, editing inputs, alpha preservation, URL normalization, compatibility and concurrent branches. They do not call the paid API, exercise the real HTTP client or launch the ComfyUI frontend. A live test in your own environment is still needed.
+Official sources checked November 7, 2026:
 
-## Credits & license
-Fork of [`lceric/comfyui-gpt-image`](https://github.com/lceric/comfyui-gpt-image). MIT License preserved (see `LICENSE`).
+- [Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+- [Create image](https://developers.openai.com/api/reference/resources/images/methods/generate)
+- [Create image edit](https://developers.openai.com/api/reference/resources/images/methods/edit)
+- [API changelog](https://developers.openai.com/api/docs/changelog)
+
+MIT License preserved; see LICENSE.

@@ -92,8 +92,8 @@ class Image25Tests(unittest.TestCase):
         single = nodes.GPTImage1Generate.INPUT_TYPES()['optional']
         parallel = nodes.GPTImage2GenerateParallelX2.INPUT_TYPES()['optional']
         for widget in (single['model'], parallel['model_a'], parallel['model_b']):
-            self.assertEqual(widget[1]['options'], NEW + OLD)
-            self.assertEqual(widget[1]['default'], FLARE)
+            self.assertEqual(widget[1]['options'], ['gpt-image-2.6-flare','gpt-image-2.6-sunburst'] + NEW + OLD)
+            self.assertEqual(widget[1]['default'], 'gpt-image-2.6-flare')
 
     def test_quality_dropdowns(self):
         single = nodes.GPTImage1Generate.INPUT_TYPES()['optional']
@@ -103,20 +103,22 @@ class Image25Tests(unittest.TestCase):
             self.assertEqual(widget[1]['default'], 'auto')
 
     def test_workflow_ids_outputs_and_input_order(self):
-        self.assertEqual(set(nodes.NODE_CLASS_MAPPINGS), {'GPTImage2GenerateParallel', 'GPTImage2GenerateParallelX2'})
+        self.assertEqual(set(nodes.NODE_CLASS_MAPPINGS), {'GPTImage2GenerateParallel', 'GPTImage2GenerateParallelX2', 'GPTImage26FilesParallelX2'})
         self.assertEqual(nodes.GPTImage1Generate.RETURN_TYPES, ('IMAGE',))
         self.assertEqual(nodes.GPTImage2GenerateParallelX2.RETURN_NAMES, ('image_a','image_b'))
         self.assertEqual(list(nodes.GPTImage1Generate.INPUT_TYPES()['optional']), [
-            'api_base','auth_token','model','seed','quality','background','size','n','image','mask','moderation'])
+            'api_base','auth_token','model','seed','quality','background','size','n','image','mask','moderation','complexity','markup','output_format','output_compression'])
         expected = ['api_base','auth_token']
         for b in ('a','b'):
             expected += [f'image_{b}{i}' for i in range(1,6)]
             expected += [f'{n}_{b}' for n in ('mask','model','size','size_custom','quality','background','n','moderation')]
+        for b in ('a','b'):
+            expected += [f'{n}_{b}' for n in ('complexity','markup','output_format','output_compression')]
         self.assertEqual(list(nodes.GPTImage2GenerateParallelX2.INPUT_TYPES()['optional']), expected)
 
     def test_default_and_legacy_models(self):
         for model in (None, '', '  '):
-            self.assertEqual(operation(model=model).request.model, FLARE)
+            self.assertEqual(operation(model=model).request.model, 'gpt-image-2.6-flare')
         for model in OLD:
             self.assertEqual(operation(model=model).request.model, model)
 
@@ -149,8 +151,7 @@ class Image25Tests(unittest.TestCase):
             data=operation(model=model,background='transparent').request.model_dump(mode='json')
             self.assertEqual(data['output_format'],'png')
             self.assertEqual(data['background'],'transparent')
-        with self.assertRaisesRegex(ValueError,'does not support transparent'):
-            operation(model='gpt-image-2',background='transparent')
+        self.assertEqual(operation(model='gpt-image-2',background='transparent').request.background.value,'transparent')
 
     def test_api_path_join(self):
         for base in (BASE, BASE+'/', ' '+BASE+' ', 'https://example.test/proxy/v1'):
@@ -194,7 +195,7 @@ class Image25Tests(unittest.TestCase):
         with patch.object(nodes.SynchronousOperation,'execute',new=execute):
             for model in (None, SUNBURST, 'gpt-image-2'):
                 asyncio.run(nodes.GPTImage1Generate().api_call(prompt='test',model=model,seed=42,api_base=BASE,auth_token='test'))
-        self.assertEqual([d['model'] for d in seen],[FLARE,SUNBURST,'gpt-image-2'])
+        self.assertEqual([d['model'] for d in seen],['gpt-image-2.6-flare',SUNBURST,'gpt-image-2'])
         self.assertTrue(all('seed' not in d for d in seen))
 
     def test_parallel_overlap_and_independent_models(self):
