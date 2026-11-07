@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-gpt-image2-parallel"
-description = "Async/parallel fork of comfyui-gpt-image: OpenAI GPT Image 2.5 Flare/Sunburst and legacy models with your own key. Includes an x2 node (prompt_a/image_a + prompt_b/image_b -> image_a + image_b) that runs both calls concurrently via asyncio.gather."
-version = "2.1.0"
+description = "Async/parallel fork of comfyui-gpt-image: OpenAI GPT Image 2.6/2.5 Flare/Sunburst with complexity, markup, SVG and GIF and legacy models with your own key. Includes an x2 node (prompt_a/image_a + prompt_b/image_b -> image_a + image_b) that runs both calls concurrently via asyncio.gather."
+version = "2.2.0"
 license = {file = "LICENSE"}
 dependencies = []
 
